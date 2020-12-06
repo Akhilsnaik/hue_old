@@ -20,11 +20,16 @@
   <ace-editor
     v-if="initialized && editorId"
     :id="editorId"
-    :executor="executor"
     :ace-options="aceOptions"
+    :executor="executor"
+    :initial-cursor-position="cursorPosition"
     :initial-value="value"
-    @value-changed="valueChanged"
     @ace-created="aceCreated"
+    @create-new-doc="createNewDoc"
+    @cursor-changed="cursorChanged"
+    @save-doc="saveDoc"
+    @toggle-presentation-mode="togglePresentationMode"
+    @value-changed="valueChanged"
   />
 </template>
 
@@ -50,8 +55,11 @@
     @Prop()
     valueObservable!: KnockoutObservable<string | undefined>;
     @Prop()
+    cursorPositionObservable!: KnockoutObservable<Ace.Position | undefined>;
+    @Prop()
     aceOptions?: Ace.Options;
 
+    cursorPosition?: Ace.Position;
     value?: string;
     editorId?: string;
     subTracker = new SubscriptionTracker();
@@ -60,27 +68,57 @@
     updated(): void {
       if (!this.initialized) {
         this.value = this.valueObservable();
-        this.subTracker.subscribe(this.valueObservable, (value: string) => {
+        this.subTracker.subscribe(this.valueObservable, (value?: string) => {
           this.value = value;
         });
+
         this.editorId = this.idObservable();
-        this.subTracker.subscribe(this.idObservable, (id: string) => {
-          this.editorId = id;
-        });
+        if (!this.editorId) {
+          this.subTracker.whenDefined<string>(this.idObservable).then(id => {
+            this.editorId = id;
+          });
+        }
+
+        this.cursorPosition = this.cursorPositionObservable();
+        if (!this.cursorPosition) {
+          this.subTracker
+            .whenDefined<Ace.Position>(this.cursorPositionObservable)
+            .then(position => {
+              this.cursorPosition = position;
+            });
+        }
         this.initialized = true;
       }
     }
 
-    valueChanged(value: string): void {
-      this.$el.dispatchEvent(new CustomEvent('value-changed', { bubbles: true, detail: value }));
+    destroyed(): void {
+      this.subTracker.dispose();
     }
 
     aceCreated(editor: Ace.Editor): void {
       this.$el.dispatchEvent(new CustomEvent('ace-created', { bubbles: true, detail: editor }));
     }
 
-    destroyed(): void {
-      this.subTracker.dispose();
+    createNewDoc(): void {
+      this.$el.dispatchEvent(new CustomEvent('create-new-doc', { bubbles: true }));
+    }
+
+    cursorChanged(cursorPosition: Ace.Position): void {
+      this.$el.dispatchEvent(
+        new CustomEvent('cursor-changed', { bubbles: true, detail: cursorPosition })
+      );
+    }
+
+    saveDoc(): void {
+      this.$el.dispatchEvent(new CustomEvent('save-doc', { bubbles: true }));
+    }
+
+    togglePresentationMode(): void {
+      this.$el.dispatchEvent(new CustomEvent('toggle-presentation-mode', { bubbles: true }));
+    }
+
+    valueChanged(value: string): void {
+      this.$el.dispatchEvent(new CustomEvent('value-changed', { bubbles: true, detail: value }));
     }
   }
 

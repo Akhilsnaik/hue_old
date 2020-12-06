@@ -34,6 +34,7 @@ export interface hueWindow {
   HAS_OPTIMIZER?: boolean;
   AUTOCOMPLETE_TIMEOUT?: number;
   ENABLE_SQL_SYNTAX_CHECK?: boolean;
+  HUE_BASE_URL?: string;
   LOGGED_USERNAME?: string;
   WEB_SOCKETS_ENABLED?: boolean;
   WS_CHANNEL?: string;

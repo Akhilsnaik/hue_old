@@ -14,18 +14,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const I18n = (identifier, ...replacements) => {
-  if (window.DJANGO_DEBUG_MODE && !window.HUE_I18n[identifier]) {
-    if (!window.missing_I18n) {
-      window.missing_I18n = [];
-    }
-    window.missing_I18n.push(`'${identifier}': '\${ _('${identifier}') }',`);
-  }
-  let result = (window.HUE_I18n && window.HUE_I18n[identifier]) || identifier;
-  replacements.forEach(replacement => {
-    result = result.replace('%s', replacement);
-  });
-  return result;
-};
-
-export default I18n;
+interface JQuery {
+  jHueFileChooser(options: {
+    suppressErrors: boolean;
+    selectFolder: boolean;
+    createFolder: boolean;
+    uploadFile: boolean;
+    initialPath: string;
+    errorRedirectPath: string;
+    forceRefresh: boolean;
+    showExtraHome: boolean;
+    extraHomeProperties: { [prop: string]: string };
+    filterExtensions: string;
+    displayOnlyFolders: boolean;
+    onFolderChoose(path: string): void;
+    onFileChoose(path: string): void;
+  }): JQuery;
+  modal(options?: string): JQuery;
+}

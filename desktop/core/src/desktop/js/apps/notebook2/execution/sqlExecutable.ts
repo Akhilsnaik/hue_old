@@ -16,10 +16,11 @@
 
 import { ExecuteApiResponse, executeStatement } from 'apps/notebook2/execution/apiUtils';
 import Executable, { ExecutableRaw } from 'apps/notebook2/execution/executable';
+import { ExecutionError } from 'apps/notebook2/execution/executionLogs';
 import Executor from 'apps/notebook2/execution/executor';
 import { ParsedSqlStatement } from 'parse/sqlStatementsParser';
 
-const BATCHABLE_STATEMENT_TYPES = /ALTER|CREATE|DELETE|DROP|GRANT|INSERT|INVALIDATE|LOAD|SET|TRUNCATE|UPDATE|UPSERT|USE/i;
+const BATCHABLE_STATEMENT_TYPES = /ALTER|WITH|REFRESH|CREATE|DELETE|DROP|GRANT|INSERT|INVALIDATE|LOAD|SET|TRUNCATE|UPDATE|UPSERT|USE/i;
 
 const SELECT_END_REGEX = /([^;]*)([;]?[^;]*)/;
 const ERROR_REGEX = /line ([0-9]+)(:([0-9]+))?/i;
@@ -126,25 +127,14 @@ export default class SqlExecutable extends Executable {
     });
   }
 
-  adaptError(err: string): string {
-    const match = ERROR_REGEX.exec(err);
+  adaptError(message: string): ExecutionError {
+    const match = ERROR_REGEX.exec(message);
     if (match) {
-      const errorLine = parseInt(match[1]) + this.parsedStatement.location.first_line - 1;
-      let errorCol = match[3] && parseInt(match[3]);
-      if (errorCol && errorLine === 1) {
-        errorCol += this.parsedStatement.location.first_column;
-      }
+      const row = parseInt(match[1]);
+      const column = (match[3] && parseInt(match[3])) || 0;
 
-      const adjustedErr = err.replace(
-        match[0],
-        'line ' + errorLine + (errorCol !== null ? ':' + errorCol : '')
-      );
-
-      this.logs.errors.push(adjustedErr);
-      this.logs.notify();
-
-      return adjustedErr;
+      return { message, column: column || 0, row };
     }
-    return err;
+    return { message, column: 0, row: this.parsedStatement.location.first_line };
   }
 }

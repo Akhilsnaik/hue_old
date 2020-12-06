@@ -81,8 +81,6 @@
 <script lang="ts">
   import { Ace } from 'ext/ace';
   import ace from 'ext/aceHelper';
-  import { REFRESH_STATEMENT_LOCATIONS_EVENT } from 'ko/bindings/ace/aceLocationHandler';
-  import hueDebug from 'utils/hueDebug';
   import Vue from 'vue';
   import Component from 'vue-class-component';
   import { Prop } from 'vue-property-decorator';
@@ -102,9 +100,11 @@
   import UdfDetailsPanel from './UdfDetailsPanel.vue';
   import Spinner from 'components/Spinner.vue';
   import { clickOutsideDirective } from 'components/directives/clickOutsideDirective';
+  import hueDebug from 'utils/hueDebug';
 
   const aceUtil = <Ace.AceUtil>ace.require('ace/autocomplete/util');
   const HashHandler = <typeof Ace.HashHandler>ace.require('ace/keyboard/hash_handler').HashHandler;
+  const REFRESH_STATEMENT_LOCATIONS_EVENT = 'editor.refresh.statement.locations';
 
   @Component({
     components: {
@@ -129,13 +129,16 @@
     @Prop({ required: false, default: false })
     temporaryOnly?: boolean;
 
+    startLayout: DOMRect | null = null;
+    startPixelRatio = window.devicePixelRatio;
+    left = 0;
+    top = 0;
+
     loading = false;
     active = false;
     filter = '';
     availableCategories = [Category.All];
     activeCategory = Category.All;
-    left = 0;
-    top = 0;
     selectedIndex: number | null = null;
     hoveredIndex: number | null = null;
     base: Ace.Anchor | null = null;
@@ -150,7 +153,7 @@
     keyboardHandler: Ace.HashHandler | null = null;
     changeListener: (() => void) | null = null;
     mousedownListener = this.detach.bind(this);
-    mousewheelListener = this.detach.bind(this);
+    mousewheelListener = this.closeOnScroll.bind(this);
     subTracker = new SubscriptionTracker();
 
     created(): void {
@@ -202,58 +205,63 @@
 
       this.autocompleteResults = this.autocompleter.autocompleteResults;
 
-      this.subTracker.subscribe(
-        'hue.ace.autocompleter.show',
-        async (details: {
-          editor: Ace.Editor;
-          lineHeight: number;
-          position: { top: number; left: number };
-        }) => {
-          // The autocomplete can be triggered right after insertion of a suggestion
-          // when live autocomplete is enabled, hence if already active we ignore.
-          if (this.active || details.editor !== this.editor || !this.autocompleter) {
-            return;
-          }
-          const session = this.editor.getSession();
-          const pos = this.editor.getCursorPosition();
-          const line = session.getLine(pos.row);
-          const prefix = aceUtil.retrievePrecedingIdentifier(line, pos.column);
-          const newBase = session.doc.createAnchor(pos.row, pos.column - prefix.length);
+      const showAutocomplete = async () => {
+        // The autocomplete can be triggered right after insertion of a suggestion
+        // when live autocomplete is enabled, hence if already active we ignore.
+        if (this.active || !this.autocompleter) {
+          return;
+        }
+        const session = this.editor.getSession();
+        const pos = this.editor.getCursorPosition();
+        const line = session.getLine(pos.row);
+        const prefix = aceUtil.retrievePrecedingIdentifier(line, pos.column);
+        const newBase = session.doc.createAnchor(pos.row, pos.column - prefix.length);
 
-          if (!this.base || newBase.column !== this.base.column || newBase.row !== this.base.row) {
-            this.positionAutocompleteDropdown();
-            try {
-              this.loading = true;
-              const parseResult = await this.autocompleter.autocomplete();
-              if (hueDebug.showParseResult) {
-                // eslint-disable-next-line no-restricted-syntax
-                console.log(parseResult);
-              }
-
-              if (parseResult) {
-                this.suggestions = [];
-                this.autocompleteResults.update(parseResult, this.suggestions).finally(() => {
-                  this.loading = false;
-                });
-
-                this.selectedIndex = 0;
-                newBase.$insertRight = true;
-                this.base = newBase;
-                if (this.autocompleteResults) {
-                  this.filter = prefix;
-                }
-                this.active = true;
-                this.attach();
-              }
-            } catch (err) {
-              if (typeof console.warn !== 'undefined') {
-                console.warn(err);
-              }
-              this.detach();
+        if (!this.base || newBase.column !== this.base.column || newBase.row !== this.base.row) {
+          this.positionAutocompleteDropdown();
+          try {
+            this.loading = true;
+            const parseResult = await this.autocompleter.autocomplete();
+            if (hueDebug.showParseResult) {
+              // eslint-disable-next-line no-restricted-syntax
+              console.log(parseResult);
             }
+
+            if (parseResult && this.autocompleteResults) {
+              this.suggestions = [];
+              this.autocompleteResults.update(parseResult, this.suggestions).finally(() => {
+                this.loading = false;
+              });
+
+              this.selectedIndex = 0;
+              newBase.$insertRight = true;
+              this.base = newBase;
+              if (this.autocompleteResults) {
+                this.filter = prefix;
+              }
+              this.active = true;
+              this.attach();
+            }
+          } catch (err) {
+            if (typeof console.warn !== 'undefined') {
+              console.warn(err);
+            }
+            this.detach();
           }
         }
-      );
+      };
+
+      this.editor.on('showAutocomplete', showAutocomplete);
+      const onHideAutocomplete = this.detach.bind(this);
+      this.editor.on('hideAutocomplete', onHideAutocomplete);
+      this.subTracker.subscribe('hue.ace.autocompleter.hide', onHideAutocomplete);
+
+      this.subTracker.addDisposable({
+        dispose: () => {
+          this.editor.off('showAutocomplete', showAutocomplete);
+          this.editor.off('hideAutocomplete', onHideAutocomplete);
+        }
+      });
 
       this.subTracker.subscribe(
         'editor.autocomplete.temporary.sort.override',
@@ -535,9 +543,28 @@
       this.editor.focus();
     }
 
+    closeOnScroll(): void {
+      if (!this.active || !this.startLayout) {
+        return;
+      }
+      const newLayout = this.editor.container.getBoundingClientRect();
+      const yDiff = newLayout.top - this.startLayout.top;
+      const xDiff = newLayout.left - this.startLayout.left;
+      if (this.startPixelRatio !== window.devicePixelRatio) {
+        // Ignore zoom changes
+        this.startLayout = newLayout;
+      } else if (Math.abs(yDiff) > 10 || Math.abs(xDiff) > 10) {
+        // Close if scroll more than 10px in any direction
+        this.detach();
+      }
+    }
+
     attach(): void {
       this.updateFilter();
       this.disposeEventHandlers();
+
+      this.startLayout = this.editor.container.getBoundingClientRect();
+      this.startPixelRatio = window.devicePixelRatio;
 
       if (this.keyboardHandler) {
         this.editor.keyBinding.addKeyboardHandler(this.keyboardHandler);
@@ -547,28 +574,7 @@
       }
       this.editor.on('mousedown', this.mousedownListener);
       this.editor.on('mousewheel', this.mousewheelListener);
-
-      let currentOffset = {
-        top: this.editor.container.offsetTop,
-        left: this.editor.container.offsetLeft
-      };
-      let currentPixelRatio = window.devicePixelRatio; // Detect zoom changes
-
-      this.positionInterval = window.setInterval(() => {
-        const newOffset = {
-          top: this.editor.container.offsetTop,
-          left: this.editor.container.offsetLeft
-        };
-        if (currentPixelRatio !== window.devicePixelRatio) {
-          currentOffset = newOffset;
-          currentPixelRatio = window.devicePixelRatio;
-        } else if (
-          Math.abs(newOffset.top - currentOffset.top) > 20 ||
-          Math.abs(newOffset.left - currentOffset.left) > 20
-        ) {
-          this.detach();
-        }
-      }, 300);
+      this.positionInterval = window.setInterval(this.closeOnScroll.bind(this), 300);
     }
 
     detach(): void {

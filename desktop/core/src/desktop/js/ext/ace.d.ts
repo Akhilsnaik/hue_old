@@ -21,13 +21,15 @@ declare namespace Ace {
     $blockScrolling: number;
     addError(message:string, line:number): void;
     addWarning(message:string, line:number): void;
+    clearSelection(): void;
     container: HTMLElement;
     commands: {
       addCommand(command: {
         name: string,
-        bindKey: { win: string; mac: string },
+        bindKey: { win: string; mac: string } | string,
         exec(): void
       }): void;
+      bindKey(key: { win: string; mac: string } | string, command: string): void;
     }
     completer: any;
     completers: any[];
@@ -49,11 +51,15 @@ declare namespace Ace {
       removeKeyboardHandler(hashHandler: HashHandler): void;
     }
     lastChangeTime: number;
+    moveCursorTo(row: number, col: number): void;
+    moveCursorToPosition(position: Position): void;
     off(ev: string, callback: ((e: any) => any) | number): void;
     on(event: string, fn: (e: any) => any): number;
     removeTextAfterCursor(length: number): void;
+    removeTextBeforeCursor(length: number): void;
     renderer: {
       scrollLeft: number;
+      scroller: HTMLElement;
       gutterWidth: number;
       lineHeight: number;
       layerConfig: {
@@ -68,7 +74,7 @@ declare namespace Ace {
       textToScreenCoordinates(row: number, column: number): { pageX: number; pageY: number }
     };
     resize(force?: boolean): void;
-    scrollToLine(line: number, u: boolean, v: boolean, callback: () => void): void;
+    scrollToLine(line: number, center: boolean, animate: boolean, callback?: () => void): void;
     selection: {
       getRange(): Range;
       getAllRanges(): Range[];
@@ -77,7 +83,9 @@ declare namespace Ace {
     session: Session;
     setOption(option: string, value: OptionValue): void;
     setOptions(options: Options): void;
+    setReadOnly(readOnly: boolean): void;
     setTheme(theme: string): void;
+    setValue(value: string, cursorPosition: number): void;
     useHueAutocompleter: boolean;
   }
 
@@ -88,7 +96,7 @@ declare namespace Ace {
   }
 
   export interface AceUtil {
-    retrievePrecedingIdentifier(row: number, column: number, regex?: RegExp): string;
+    retrievePrecedingIdentifier(line: string, column: number, regex?: RegExp): string;
   }
 
   export interface Position {
@@ -112,6 +120,7 @@ declare namespace Ace {
   export interface Document {
     createAnchor(position: Position): Anchor;
     createAnchor(x: number, y: number): Anchor;
+    replace(range: Range, text: string): void;
   }
 
   export interface Anchor extends Position {
@@ -123,6 +132,7 @@ declare namespace Ace {
   }
 
   export interface Marker {
+    id: number;
     clazz: string;
     dispose(): void;
     range: Range;
@@ -134,13 +144,16 @@ declare namespace Ace {
     addGutterDecoration(line: number, clazz: string): void;
     addMarker(range: Range, clazz: string): number;
     doc: Document;
-    getLine(row: number): number;
+    getDocument(): Document;
+    getLine(row: number): string;
     getTextRange(range: SimpleRange): string;
     getTokenAt(row: number, column: number): HueToken | null;
     getTokens(line?: number): HueToken[];
+    insert(position: Position, text: string): void;
     remove(range: Range): void;
     removeGutterDecoration(line: number, clazz: string): void;
     removeMarker(markerId: number): void;
+    replace(range: Range, value: string): void;
     setMode(mode: string): void;
   }
 

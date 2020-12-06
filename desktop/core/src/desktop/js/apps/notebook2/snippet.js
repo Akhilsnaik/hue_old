@@ -34,7 +34,8 @@ import apiHelper from 'api/apiHelper';
 import Executor from 'apps/notebook2/execution/executor';
 import hueAnalytics from 'utils/hueAnalytics';
 import huePubSub from 'utils/huePubSub';
-import hueUtils, { defer } from 'utils/hueUtils';
+import { defer, UUID } from 'utils/hueUtils';
+import { getFromLocalStorage, setInLocalStorage } from 'utils/storageUtils';
 import sessionManager from 'apps/notebook2/execution/sessionManager';
 import SqlExecutable from 'apps/notebook2/execution/sqlExecutable';
 import { HIDE_FIXED_HEADERS_EVENT, REDRAW_FIXED_HEADERS_EVENT } from 'apps/notebook2/events';
@@ -200,7 +201,7 @@ export default class Snippet {
     this.parentVm = vm;
     this.parentNotebook = notebook;
 
-    this.id = ko.observable(snippetRaw.id || hueUtils.UUID());
+    this.id = ko.observable(snippetRaw.id || UUID());
     this.name = ko.observable(snippetRaw.name || '');
 
     this.connector = ko.observable();
@@ -290,7 +291,7 @@ export default class Snippet {
 
     this.database.subscribe(newValue => {
       if (newValue !== null) {
-        apiHelper.setInTotalStorage('editor', 'last.selected.database', newValue);
+        setInLocalStorage('editor.last.selected.database', newValue);
         if (previousDatabase !== null && previousDatabase !== newValue) {
           huePubSub.publish(REFRESH_STATEMENT_LOCATIONS_EVENT, this.id());
         }
@@ -366,10 +367,8 @@ export default class Snippet {
       huePubSub.publish(REFRESH_STATEMENT_LOCATIONS_EVENT, this);
     };
 
-    huePubSub.subscribe(CURSOR_POSITION_CHANGED_EVENT, details => {
-      if (details.editorId === this.id()) {
-        this.aceCursorPosition(details.position);
-      }
+    huePubSub.subscribe('ace.editor.focused', editor => {
+      this.inFocus(editor === this.ace());
     });
 
     huePubSub.subscribe(
@@ -490,8 +489,8 @@ export default class Snippet {
     });
 
     let defaultShowLogs = true;
-    if (this.parentVm.editorMode() && $.totalStorage('hue.editor.showLogs')) {
-      defaultShowLogs = $.totalStorage('hue.editor.showLogs');
+    if (this.parentVm.editorMode() && getFromLocalStorage('hue.editor.showLogs')) {
+      defaultShowLogs = getFromLocalStorage('hue.editor.showLogs');
     }
     this.showLogs = ko.observable(snippetRaw.showLogs || defaultShowLogs);
     this.jobs = ko.observableArray(snippetRaw.jobs || []);
@@ -502,7 +501,7 @@ export default class Snippet {
     this.showLogs.subscribe(val => {
       huePubSub.publish(REDRAW_FIXED_HEADERS_EVENT);
       if (this.parentVm.editorMode()) {
-        $.totalStorage('hue.editor.showLogs', val);
+        setInLocalStorage('hue.editor.showLogs', val);
       }
     });
 
@@ -558,12 +557,10 @@ export default class Snippet {
       COMPATIBILITY_TARGET_PLATFORMS[this.dialect()]
     );
 
-    this.showOptimizer = ko.observable(
-      apiHelper.getFromTotalStorage('editor', 'show.optimizer', false)
-    );
+    this.showOptimizer = ko.observable(getFromLocalStorage('editor.show.optimizer', false));
     this.showOptimizer.subscribe(newValue => {
       if (newValue !== null) {
-        apiHelper.setInTotalStorage('editor', 'show.optimizer', newValue);
+        setInLocalStorage('editor.show.optimizer', newValue);
       }
     });
 
@@ -957,37 +954,6 @@ export default class Snippet {
       });
     } else if (data.status === 1 || data.status === -1) {
       this.status(STATUS.failed);
-      const match = ERROR_REGEX.exec(data.message);
-      if (match) {
-        let errorLine = parseInt(match[1]);
-        let errorCol;
-        if (typeof match[3] !== 'undefined') {
-          errorCol = parseInt(match[3]);
-        }
-        if (this.positionStatement()) {
-          if (errorCol && errorLine === 1) {
-            errorCol += this.positionStatement().location.first_column;
-          }
-          errorLine += this.positionStatement().location.first_line - 1;
-        }
-
-        this.errors.push({
-          message: data.message.replace(
-            match[0],
-            'line ' + errorLine + (errorCol !== null ? ':' + errorCol : '')
-          ),
-          help: null,
-          line: errorLine - 1,
-          col: errorCol
-        });
-      } else {
-        this.errors.push({
-          message: data.message,
-          help: data.help,
-          line: null,
-          col: null
-        });
-      }
     } else {
       $(document).trigger('error', data.message);
       this.status(STATUS.failed);
